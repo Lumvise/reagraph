@@ -1,3 +1,6 @@
+# 4.30.8 - 2/2/26
+- [fix] update deps for #397
+
 # 4.30.7 - 11/3/25
 - [feature] Add new props to Badge component for enhanced customization
   - `opacity`: Control badge background and stroke opacity (0-1)
