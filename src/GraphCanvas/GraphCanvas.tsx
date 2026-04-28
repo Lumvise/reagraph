@@ -1,7 +1,8 @@
+import type { Graph as CosmosGraph } from '@cosmos.gl/graph';
 import { Canvas } from '@react-three/fiber';
 import type ThreeCameraControls from 'camera-controls';
 import type Graph from 'graphology';
-import type { ReactNode, Ref } from 'react';
+import type { ReactElement, ReactNode, Ref, RefAttributes } from 'react';
 import React, {
   forwardRef,
   Suspense,
@@ -20,13 +21,33 @@ import { Lasso } from '../selection/Lasso';
 import { createStore, Provider } from '../store';
 import type { Theme } from '../themes';
 import { lightTheme } from '../themes';
+import type { CosmosConfig } from './cosmos';
+import { CosmosGraphCanvas } from './CosmosGraphCanvas';
 import css from './GraphCanvas.module.css';
+
+export type RenderEngine = 'three' | 'cosmos';
 
 export interface GraphCanvasProps extends Omit<GraphSceneProps, 'theme'> {
   /**
    * Theme to use for the graph.
    */
   theme?: Theme;
+
+  /**
+   * Render engine to use for the graph. Defaults to the Three.js renderer.
+   *
+   * The cosmos renderer supports large 2D graphs, Reagraph styling, labels,
+   * node/edge click and hover, node double click, node/edge context menu, and
+   * node drag end callbacks. Three.js-only features such as lasso, custom
+   * renderers, children, and cluster rendering/events are ignored by cosmos.
+   */
+  renderEngine?: RenderEngine;
+
+  /**
+   * Additional cosmos.gl configuration when renderEngine is "cosmos". Reagraph
+   * also accepts labelMaxCount and labelUpdateInterval for cosmos DOM labels.
+   */
+  cosmosConfig?: CosmosConfig;
 
   /**
    * Type of camera interaction.
@@ -89,23 +110,69 @@ export interface GraphCanvasProps extends Omit<GraphSceneProps, 'theme'> {
   aggregateEdges?: boolean;
 }
 
-export type GraphCanvasRef = Omit<GraphSceneRef, 'graph' | 'renderScene'> &
-  Omit<CameraControlsRef, 'controls'> & {
-    /**
-     * Get the graph object.
-     */
-    getGraph: () => Graph;
+export interface ThreeGraphCanvasProps extends GraphCanvasProps {
+  renderEngine?: 'three';
+}
 
-    /**
-     * Get the camera controls.
-     */
-    getControls: () => ThreeCameraControls;
+export interface CosmosGraphCanvasProps extends GraphCanvasProps {
+  renderEngine: 'cosmos';
+}
 
-    /**
-     * Export the canvas as a data URL.
-     */
-    exportCanvas: () => string;
-  };
+export interface BaseGraphCanvasRef
+  extends Omit<GraphSceneRef, 'graph' | 'renderScene'> {
+  /**
+   * Get the graph object.
+   */
+  getGraph: () => Graph;
+
+  /**
+   * Export the canvas as a data URL.
+   */
+  exportCanvas: () => string;
+
+  /**
+   * Zoom in on the graph.
+   */
+  zoomIn: () => void;
+
+  /**
+   * Zoom out on the graph.
+   */
+  zoomOut: () => void;
+
+  /**
+   * Reset controls to the initial graph view.
+   */
+  resetControls: (animated?: boolean) => void;
+
+  /**
+   * Freeze graph interactions.
+   */
+  freeze: () => void;
+
+  /**
+   * Unfreeze graph interactions.
+   */
+  unFreeze: () => void;
+}
+
+export interface ThreeGraphCanvasRef
+  extends BaseGraphCanvasRef,
+    Omit<CameraControlsRef, 'controls'> {
+  /**
+   * Get the camera controls.
+   */
+  getControls: () => ThreeCameraControls;
+}
+
+export type GraphCanvasRef = ThreeGraphCanvasRef;
+
+export interface CosmosGraphCanvasRef extends BaseGraphCanvasRef {
+  /**
+   * Get the cosmos.gl graph renderer.
+   */
+  getCosmosGraph: () => CosmosGraph | undefined;
+}
 
 const GL_DEFAULTS = {
   alpha: true,
@@ -120,7 +187,7 @@ const CAMERA_DEFAULTS: any = {
   fov: 10
 };
 
-export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(
+const ThreeGraphCanvas = forwardRef<ThreeGraphCanvasRef, GraphCanvasProps>(
   (
     {
       cameraMode = 'pan',
@@ -146,10 +213,15 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(
       onLasso,
       onLassoEnd,
       aggregateEdges,
+      renderEngine,
+      cosmosConfig,
       ...rest
     },
-    ref: Ref<GraphCanvasRef>
+    ref: Ref<ThreeGraphCanvasRef>
   ) => {
+    void renderEngine;
+    void cosmosConfig;
+
     const rendererRef = useRef<GraphSceneRef | null>(null);
     const controlsRef = useRef<CameraControlsRef | null>(null);
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -295,3 +367,26 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(
     );
   }
 );
+
+export interface GraphCanvasComponent {
+  (
+    props: ThreeGraphCanvasProps & RefAttributes<ThreeGraphCanvasRef>
+  ): ReactElement | null;
+  (
+    props: CosmosGraphCanvasProps & RefAttributes<CosmosGraphCanvasRef>
+  ): ReactElement | null;
+}
+
+const GraphCanvasComponent = forwardRef<BaseGraphCanvasRef, GraphCanvasProps>(
+  (props, ref) =>
+    props.renderEngine === 'cosmos' ? (
+      <CosmosGraphCanvas
+        ref={ref as unknown as Ref<CosmosGraphCanvasRef>}
+        {...props}
+      />
+    ) : (
+      <ThreeGraphCanvas ref={ref as Ref<ThreeGraphCanvasRef>} {...props} />
+    )
+);
+
+export const GraphCanvas = GraphCanvasComponent as GraphCanvasComponent;
