@@ -45,6 +45,7 @@ Reagraph is a high-performance network graph visualization built in WebGL for Re
 
 ## ✨ Features
 - WebGL based for high performance
+- Optional cosmos.gl renderer for large 2D graphs
 - Node Sizing based on attribute, page rank, centrality, custom
 - Light and Dark Mode with custom theme ability
 - Path finding between nodes
@@ -123,6 +124,37 @@ export default () => (
 ```
 
 Checkout an example on [CodeSandbox](https://codesandbox.io/s/reagraph-example-mwh96q).
+
+### Optional cosmos.gl renderer
+
+Three.js is the default renderer. For very large 2D graphs, opt into the
+cosmos.gl renderer with `renderEngine="cosmos"`:
+
+```tsx
+import React, { useRef } from 'react';
+import { GraphCanvas, type CosmosGraphCanvasRef } from 'reagraph';
+
+export default ({ nodes, edges }) => {
+  const graphRef = useRef<CosmosGraphCanvasRef | null>(null);
+
+  return (
+    <GraphCanvas
+      ref={graphRef}
+      renderEngine="cosmos"
+      nodes={nodes}
+      edges={edges}
+      cosmosConfig={{ labelMaxCount: 50 }}
+    />
+  );
+};
+```
+
+`GraphCanvasRef` remains the default Three.js ref type. Use
+`CosmosGraphCanvasRef` when `renderEngine="cosmos"`. The cosmos renderer
+supports Reagraph styling, labels, node/edge click and hover, node double click,
+node/edge context menu, and node drag-end callbacks. Three.js-only features such
+as lasso selection, custom renderers, children, and cluster rendering/events are
+not supported by the cosmos renderer.
 
 ## 🔭 Development
 
