@@ -21,6 +21,11 @@ import {
   buildCosmosConfig,
   prepareCosmosGraph
 } from './cosmos';
+import {
+  CosmosLabels,
+  DEFAULT_COSMOS_LABEL_MAX_COUNT,
+  DEFAULT_COSMOS_LABEL_UPDATE_INTERVAL
+} from './CosmosLabels';
 import type { CosmosGraphCanvasRef, GraphCanvasProps } from './GraphCanvas';
 import css from './GraphCanvas.module.css';
 
@@ -69,13 +74,27 @@ export const CosmosGraphCanvas = forwardRef<
       edgeArrowPosition = 'end',
       aggregateEdges,
       cosmosConfig,
+      contextMenu,
+      edgeLabelPosition,
       onCanvasClick,
+      onNodeContextMenu,
       onNodeClick,
+      onNodeDoubleClick,
+      onNodeDragged,
       onNodePointerOver,
       onNodePointerOut,
+      onEdgeContextMenu,
       onEdgeClick,
       onEdgePointerOver,
-      onEdgePointerOut
+      onEdgePointerOut,
+      lassoType,
+      renderNode,
+      onRenderCluster,
+      onClusterClick,
+      onClusterDragged,
+      onClusterPointerOver,
+      onClusterPointerOut,
+      children
     },
     ref: Ref<CosmosGraphCanvasRef>
   ) => {
@@ -93,6 +112,22 @@ export const CosmosGraphCanvas = forwardRef<
     );
     const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
     const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
+    const selectedIds = useMemo(() => new Set(selections), [selections]);
+    const activeIds = useMemo(() => {
+      const ids = new Set(actives);
+      if (hoveredNodeId) {
+        ids.add(hoveredNodeId);
+      }
+      if (hoveredEdgeId) {
+        ids.add(hoveredEdgeId);
+      }
+
+      return ids;
+    }, [actives, hoveredEdgeId, hoveredNodeId]);
+    const labelMaxCount =
+      cosmosConfig?.labelMaxCount ?? DEFAULT_COSMOS_LABEL_MAX_COUNT;
+    const labelUpdateInterval =
+      cosmosConfig?.labelUpdateInterval ?? DEFAULT_COSMOS_LABEL_UPDATE_INTERVAL;
 
     const getNodeIndices = useCallback((nodeIds?: string[]) => {
       const prepared = preparedRef.current;
@@ -122,6 +157,16 @@ export const CosmosGraphCanvas = forwardRef<
       (index: number): InternalGraphEdge | undefined =>
         preparedRef.current.edges[index],
       []
+    );
+
+    const getNodeContextProps = useCallback(
+      (node: InternalGraphNode) => ({
+        canCollapse: preparedRef.current.edges.some(
+          edge => edge.source === node.id
+        ),
+        isCollapsed: collapsedNodeIds.includes(node.id)
+      }),
+      [collapsedNodeIds]
     );
 
     useImperativeHandle(
@@ -197,20 +242,10 @@ export const CosmosGraphCanvas = forwardRef<
           onPointClick: (index, _position, event) => {
             if (disabled) return;
 
-            const prepared = preparedRef.current;
             const node = getNodeByIndex(index);
             if (!node) return;
 
-            onNodeClick?.(
-              node,
-              {
-                canCollapse: prepared.edges.some(
-                  edge => edge.source === node.id
-                ),
-                isCollapsed: collapsedNodeIds.includes(node.id)
-              },
-              event as never
-            );
+            onNodeClick?.(node, getNodeContextProps(node), event as never);
           },
           onPointMouseOver: (index, _position, event) => {
             const node = getNodeByIndex(index);
@@ -259,10 +294,36 @@ export const CosmosGraphCanvas = forwardRef<
             if (edge) {
               onEdgePointerOut?.(edge, event as never);
             }
+          },
+          onPointDragEnd: event => {
+            if (disabled || !onNodeDragged) return;
+
+            const index = event.subject?.index;
+            const node =
+              typeof index === 'number' ? getNodeByIndex(index) : undefined;
+            const graph = cosmosRef.current;
+
+            if (!node || !graph) return;
+
+            const positions = graph.getPointPositions();
+            const offset = index * 2;
+            const nextNode = {
+              ...node,
+              position: {
+                ...node.position,
+                x: positions[offset] ?? node.position.x,
+                y: positions[offset + 1] ?? node.position.y
+              }
+            };
+
+            preparedRef.current.nodes[index] = nextNode;
+            setPreparedGraph(current =>
+              current === preparedRef.current ? { ...current } : current
+            );
+            onNodeDragged(nextNode);
           }
         }),
       [
-        collapsedNodeIds,
         cosmosConfig,
         defaultNodeSize,
         disabled,
@@ -270,12 +331,14 @@ export const CosmosGraphCanvas = forwardRef<
         edgeArrowPosition,
         edgeInterpolation,
         getEdgeByIndex,
+        getNodeContextProps,
         getNodeByIndex,
         onCanvasClick,
         onEdgeClick,
         onEdgePointerOut,
         onEdgePointerOver,
         onNodeClick,
+        onNodeDragged,
         onNodePointerOut,
         onNodePointerOver,
         theme
@@ -329,6 +392,101 @@ export const CosmosGraphCanvas = forwardRef<
     useEffect(() => {
       cosmosRef.current?.setConfig(config);
     }, [config]);
+
+    useEffect(() => {
+      const container = containerRef.current;
+      if (!container) {
+        return undefined;
+      }
+
+      const handleDoubleClick = (event: MouseEvent) => {
+        if (disabled) return;
+
+        const node = preparedRef.current.nodes.find(
+          n => n.id === hoveredNodeIdRef.current
+        );
+
+        if (node) {
+          onNodeDoubleClick?.(node, event as never);
+        }
+      };
+
+      const handleContextMenu = (event: MouseEvent) => {
+        if (disabled) return;
+
+        const node = preparedRef.current.nodes.find(
+          n => n.id === hoveredNodeIdRef.current
+        );
+        if (node && onNodeContextMenu) {
+          event.preventDefault();
+          onNodeContextMenu(node, {
+            ...getNodeContextProps(node),
+            onCollapse: () => undefined
+          });
+          return;
+        }
+
+        const edge = preparedRef.current.edges.find(
+          e => e.id === hoveredEdgeIdRef.current
+        );
+        if (edge && onEdgeContextMenu) {
+          event.preventDefault();
+          onEdgeContextMenu(edge);
+        }
+      };
+
+      container.addEventListener('dblclick', handleDoubleClick);
+      container.addEventListener('contextmenu', handleContextMenu);
+
+      return () => {
+        container.removeEventListener('dblclick', handleDoubleClick);
+        container.removeEventListener('contextmenu', handleContextMenu);
+      };
+    }, [
+      disabled,
+      getNodeContextProps,
+      onEdgeContextMenu,
+      onNodeContextMenu,
+      onNodeDoubleClick
+    ]);
+
+    useEffect(() => {
+      if (typeof console === 'undefined') {
+        return;
+      }
+
+      const unsupportedProps = [
+        children ? 'children' : undefined,
+        contextMenu ? 'contextMenu' : undefined,
+        edgeLabelPosition ? 'edgeLabelPosition' : undefined,
+        lassoType && lassoType !== 'none' ? 'lassoType' : undefined,
+        renderNode ? 'renderNode' : undefined,
+        onRenderCluster ? 'onRenderCluster' : undefined,
+        onClusterClick ? 'onClusterClick' : undefined,
+        onClusterDragged ? 'onClusterDragged' : undefined,
+        onClusterPointerOver ? 'onClusterPointerOver' : undefined,
+        onClusterPointerOut ? 'onClusterPointerOut' : undefined
+      ].filter(Boolean);
+
+      if (unsupportedProps.length) {
+        console.warn(
+          `GraphCanvas renderEngine="cosmos" does not currently support: ${unsupportedProps.join(
+            ', '
+          )}. These props are only handled by the Three.js renderer.`
+        );
+      }
+    }, [
+      children,
+      contextMenu,
+      edgeLabelPosition,
+      lassoType,
+      onClusterClick,
+      onClusterDragged,
+      onClusterPointerOut,
+      onClusterPointerOver,
+      onRenderCluster,
+      renderNode
+    ]);
 
     useEffect(() => {
       let cancelled = false;
@@ -402,7 +560,7 @@ export const CosmosGraphCanvas = forwardRef<
         edgeArrowPosition,
         hasSelections: selections.length > 0,
         preparedGraph,
-        selectedIds: new Set(selections),
+        selectedIds,
         theme
       });
 
@@ -435,12 +593,25 @@ export const CosmosGraphCanvas = forwardRef<
       hoveredNodeId,
       preparedGraph,
       selections,
+      selectedIds,
       theme
     ]);
 
     return (
       <div className={css.canvas}>
         <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+        <CosmosLabels
+          activeIds={activeIds}
+          containerRef={containerRef}
+          defaultNodeSize={defaultNodeSize}
+          graphRef={cosmosRef}
+          labelType={labelType}
+          maxCount={labelMaxCount}
+          preparedGraph={preparedGraph}
+          selectedIds={selectedIds}
+          theme={theme}
+          updateInterval={labelUpdateInterval}
+        />
       </div>
     );
   }

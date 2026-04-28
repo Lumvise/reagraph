@@ -2,7 +2,7 @@ import type { Graph as CosmosGraph } from '@cosmos.gl/graph';
 import { Canvas } from '@react-three/fiber';
 import type ThreeCameraControls from 'camera-controls';
 import type Graph from 'graphology';
-import type { ReactNode, Ref } from 'react';
+import type { ReactElement, ReactNode, Ref, RefAttributes } from 'react';
 import React, {
   forwardRef,
   Suspense,
@@ -35,11 +35,17 @@ export interface GraphCanvasProps extends Omit<GraphSceneProps, 'theme'> {
 
   /**
    * Render engine to use for the graph. Defaults to the Three.js renderer.
+   *
+   * The cosmos renderer supports large 2D graphs, Reagraph styling, labels,
+   * node/edge click and hover, node double click, node/edge context menu, and
+   * node drag end callbacks. Three.js-only features such as lasso, custom
+   * renderers, children, and cluster rendering/events are ignored by cosmos.
    */
   renderEngine?: RenderEngine;
 
   /**
-   * Additional cosmos.gl configuration when renderEngine is "cosmos".
+   * Additional cosmos.gl configuration when renderEngine is "cosmos". Reagraph
+   * also accepts labelMaxCount and labelUpdateInterval for cosmos DOM labels.
    */
   cosmosConfig?: CosmosConfig;
 
@@ -102,6 +108,14 @@ export interface GraphCanvasProps extends Omit<GraphSceneProps, 'theme'> {
    * Whether to aggregate edges with the same source and target.
    */
   aggregateEdges?: boolean;
+}
+
+export interface ThreeGraphCanvasProps extends GraphCanvasProps {
+  renderEngine?: 'three';
+}
+
+export interface CosmosGraphCanvasProps extends GraphCanvasProps {
+  renderEngine: 'cosmos';
 }
 
 export interface BaseGraphCanvasRef
@@ -354,7 +368,16 @@ const ThreeGraphCanvas = forwardRef<ThreeGraphCanvasRef, GraphCanvasProps>(
   }
 );
 
-export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(
+export interface GraphCanvasComponent {
+  (
+    props: ThreeGraphCanvasProps & RefAttributes<ThreeGraphCanvasRef>
+  ): ReactElement | null;
+  (
+    props: CosmosGraphCanvasProps & RefAttributes<CosmosGraphCanvasRef>
+  ): ReactElement | null;
+}
+
+const GraphCanvasComponent = forwardRef<BaseGraphCanvasRef, GraphCanvasProps>(
   (props, ref) =>
     props.renderEngine === 'cosmos' ? (
       <CosmosGraphCanvas
@@ -365,3 +388,5 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(
       <ThreeGraphCanvas ref={ref as Ref<ThreeGraphCanvasRef>} {...props} />
     )
 );
+
+export const GraphCanvas = GraphCanvasComponent as GraphCanvasComponent;

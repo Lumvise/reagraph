@@ -28,7 +28,6 @@ const GROUP_COUNT = 16;
 const GROUP_RADIUS = 2800;
 const NODE_SPACING = 34;
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
-const LABEL_MARGIN = 24;
 
 const COLORS = [
   '#2563eb',
@@ -51,23 +50,8 @@ const graphButtonStyle = (active: boolean): React.CSSProperties => ({
   background: active ? '#f9fafb' : 'rgba(255, 255, 255, 0.14)'
 });
 
-interface LabelCandidate {
-  id: string;
-  label: string;
-  position: [number, number];
-  priority: number;
-}
-
-interface ScreenLabel {
-  id: string;
-  label: string;
-  x: number;
-  y: number;
-}
-
 interface StoryStats {
   fps: number;
-  labels: ScreenLabel[];
   zoom: number;
 }
 
@@ -77,7 +61,6 @@ interface GraphOverlayProps {
     (GraphCanvasRef & Partial<CosmosGraphCanvasRef>) | null
   >;
   interactionLabel: string;
-  labelCandidates: LabelCandidate[];
   nodes: GraphNode[];
   renderEngine: RenderEngine;
   setRenderEngine: (engine: RenderEngine) => void;
@@ -89,20 +72,18 @@ interface NodeConnections {
   neighborCount: number;
 }
 
-const EMPTY_LABELS: ScreenLabel[] = [];
 const EMPTY_IDS: string[] = [];
 const COSMOS_CONFIG = {
   fitViewDelay: 0,
   fitViewDuration: 0,
+  labelMaxCount: GROUP_COUNT,
+  labelUpdateInterval: 50,
   linkOpacity: 1,
   linkVisibilityMinTransparency: 1,
   linkWidthScale: 2.4,
-  pointSamplingDistance: 120,
+  pointSamplingDistance: 260,
   scaleLinksOnZoom: true
 };
-type CosmosGraphInstance = NonNullable<
-  ReturnType<CosmosGraphCanvasRef['getCosmosGraph']>
->;
 
 const getNodeLayoutPosition = (index: number, data?: GraphNode['data']) => {
   const group = index % GROUP_COUNT;
@@ -125,11 +106,11 @@ function createLargeGraph() {
   const nodes: GraphNode[] = Array.from({ length: NODE_COUNT }, (_, index) => {
     const group = index % GROUP_COUNT;
     const localIndex = Math.floor(index / GROUP_COUNT);
-    const isLabelAnchor = localIndex % 60 === 0;
+    const isLabelAnchor = localIndex === 0;
 
     return {
       id: `n-${index}`,
-      label: isLabelAnchor ? `Group ${group} / ${localIndex}` : `Node ${index}`,
+      label: isLabelAnchor ? `Group ${group}` : undefined,
       fill: COLORS[group % COLORS.length],
       size: isLabelAnchor ? 14 : undefined,
       data: {
@@ -215,93 +196,14 @@ const largeGraphLayout = {
   }
 } as LayoutFactoryProps;
 
-const createLabelCandidates = (nodes: GraphNode[]): LabelCandidate[] =>
-  nodes.reduce<LabelCandidate[]>((labels, node, index) => {
-    const localIndex = Math.floor(index / GROUP_COUNT);
-    const shouldLabel = localIndex === 0 || localIndex % 60 === 0;
-
-    if (!shouldLabel) {
-      return labels;
-    }
-
-    const position = getNodeLayoutPosition(index);
-
-    labels.push({
-      id: node.id,
-      label: node.label ?? node.id,
-      position: [position.x, position.y],
-      priority: localIndex === 0 ? 0 : localIndex % 120 === 0 ? 1 : 2
-    });
-
-    return labels;
-  }, []);
-
-const getCosmosLabels = (
-  graph: CosmosGraphInstance,
-  labelCandidates: LabelCandidate[]
-): ScreenLabel[] => {
-  const zoom = graph.getZoomLevel();
-  const maxPriority = zoom > 3 ? 2 : zoom > 1.5 ? 1 : 0;
-  const maxLabels = zoom > 3 ? 64 : zoom > 1.5 ? 36 : 16;
-  const labels: ScreenLabel[] = [];
-
-  for (const candidate of labelCandidates) {
-    if (candidate.priority > maxPriority) {
-      continue;
-    }
-
-    const [x, y] = graph.spaceToScreenPosition(candidate.position);
-
-    if (
-      x < LABEL_MARGIN ||
-      y < LABEL_MARGIN ||
-      x > window.innerWidth - LABEL_MARGIN ||
-      y > window.innerHeight - LABEL_MARGIN
-    ) {
-      continue;
-    }
-
-    labels.push({
-      id: candidate.id,
-      label: candidate.label,
-      x,
-      y
-    });
-
-    if (labels.length >= maxLabels) {
-      break;
-    }
-  }
-
-  return labels;
-};
-
-const areLabelsEqual = (a: ScreenLabel[], b: ScreenLabel[]) => {
-  if (a.length !== b.length) {
-    return false;
-  }
-
-  return a.every((label, index) => {
-    const next = b[index];
-    return (
-      label.id === next.id &&
-      label.label === next.label &&
-      Math.abs(label.x - next.x) < 1 &&
-      Math.abs(label.y - next.y) < 1
-    );
-  });
-};
-
 const useStoryStats = (
   renderEngine: RenderEngine,
   graphRef: React.RefObject<
     (GraphCanvasRef & Partial<CosmosGraphCanvasRef>) | null
-  >,
-  labelCandidates: LabelCandidate[]
+  >
 ) => {
   const [stats, setStats] = useState<StoryStats>({
     fps: 0,
-    labels: EMPTY_LABELS,
     zoom: 1
   });
 
@@ -313,7 +215,6 @@ const useStoryStats = (
     let lastLabelUpdate = lastFpsUpdate;
     let lastStats: StoryStats = {
       fps,
-      labels: renderEngine === 'cosmos' ? [] : EMPTY_LABELS,
       zoom: 1
     };
 
@@ -335,16 +236,12 @@ const useStoryStats = (
 
         const nextStats = {
           fps,
-          labels: cosmosGraph
-            ? getCosmosLabels(cosmosGraph, labelCandidates)
-            : EMPTY_LABELS,
           zoom: cosmosGraph?.getZoomLevel() ?? 1
         };
 
         if (
           nextStats.fps !== lastStats.fps ||
-          Math.abs(nextStats.zoom - lastStats.zoom) >= 0.01 ||
-          !areLabelsEqual(nextStats.labels, lastStats.labels)
+          Math.abs(nextStats.zoom - lastStats.zoom) >= 0.01
         ) {
           lastStats = nextStats;
           setStats(nextStats);
@@ -368,7 +265,7 @@ const useStoryStats = (
     return () => {
       cancelAnimationFrame(frameId);
     };
-  }, [graphRef, labelCandidates, renderEngine]);
+  }, [graphRef, renderEngine]);
 
   return stats;
 };
@@ -377,41 +274,14 @@ const GraphOverlay = ({
   edges,
   graphRef,
   interactionLabel,
-  labelCandidates,
   nodes,
   renderEngine,
   setRenderEngine
 }: GraphOverlayProps) => {
-  const stats = useStoryStats(renderEngine, graphRef, labelCandidates);
+  const stats = useStoryStats(renderEngine, graphRef);
 
   return (
     <>
-      {renderEngine === 'cosmos' &&
-        stats.labels.map(label => (
-          <div
-            key={label.id}
-            style={{
-              color: '#2A6475',
-              fontSize: 12,
-              fontWeight: 600,
-              left: label.x,
-              maxWidth: 140,
-              overflow: 'hidden',
-              pointerEvents: 'none',
-              position: 'absolute',
-              textAlign: 'center',
-              textOverflow: 'ellipsis',
-              textShadow:
-                '-1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff',
-              top: label.y,
-              transform: 'translate(-50%, -150%)',
-              whiteSpace: 'nowrap',
-              zIndex: 8
-            }}
-          >
-            {label.label}
-          </div>
-        ))}
       <div
         style={{
           alignItems: 'center',
@@ -467,7 +337,6 @@ export const RendererSwitch = () => {
   const [interactionLabel, setInteractionLabel] = useState('Ready');
   const { nodes, edges } = useMemo(createLargeGraph, []);
   const connectionMap = useMemo(() => createConnectionMap(edges), [edges]);
-  const labelCandidates = useMemo(() => createLabelCandidates(nodes), [nodes]);
   const actives = useMemo(
     () => (activeId ? [activeId] : EMPTY_IDS),
     [activeId]
@@ -562,7 +431,6 @@ export const RendererSwitch = () => {
         edges={edges}
         graphRef={graphRef}
         interactionLabel={interactionLabel}
-        labelCandidates={labelCandidates}
         nodes={nodes}
         renderEngine={renderEngine}
         setRenderEngine={setRenderEngine}
