@@ -12,6 +12,7 @@ import React, {
   useState
 } from 'react';
 
+import { createElement } from '../selection/utils';
 import { lightTheme } from '../themes';
 import type { InternalGraphEdge, InternalGraphNode } from '../types';
 import type { PreparedCosmosGraph } from './cosmos';
@@ -26,7 +27,11 @@ import {
   DEFAULT_COSMOS_LABEL_MAX_COUNT,
   DEFAULT_COSMOS_LABEL_UPDATE_INTERVAL
 } from './CosmosLabels';
-import type { CosmosGraphCanvasRef, GraphCanvasProps } from './GraphCanvas';
+import type {
+  CosmosGraphCanvasRef,
+  CosmosGraphControls,
+  GraphCanvasProps
+} from './GraphCanvas';
 import css from './GraphCanvas.module.css';
 
 interface ResizableCosmosGraph {
@@ -77,6 +82,8 @@ export const CosmosGraphCanvas = forwardRef<
       contextMenu,
       edgeLabelPosition,
       onCanvasClick,
+      onLasso,
+      onLassoEnd,
       onNodeContextMenu,
       onNodeClick,
       onNodeDoubleClick,
@@ -107,14 +114,17 @@ export const CosmosGraphCanvas = forwardRef<
     );
     const hoveredNodeIdRef = useRef<string | null>(null);
     const hoveredEdgeIdRef = useRef<string | null>(null);
+    const lassoElementRef = useRef<HTMLDivElement | null>(null);
+    const lassoStartRef = useRef<[number, number] | null>(null);
     const [preparedGraph, setPreparedGraph] = useState<PreparedCosmosGraph>(
       preparedRef.current
     );
     const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
     const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
+    const [lassoActives, setLassoActives] = useState<string[]>([]);
     const selectedIds = useMemo(() => new Set(selections), [selections]);
     const activeIds = useMemo(() => {
-      const ids = new Set(actives);
+      const ids = new Set([...actives, ...lassoActives]);
       if (hoveredNodeId) {
         ids.add(hoveredNodeId);
       }
@@ -123,7 +133,7 @@ export const CosmosGraphCanvas = forwardRef<
       }
 
       return ids;
-    }, [actives, hoveredEdgeId, hoveredNodeId]);
+    }, [actives, hoveredEdgeId, hoveredNodeId, lassoActives]);
     const labelMaxCount =
       cosmosConfig?.labelMaxCount ?? DEFAULT_COSMOS_LABEL_MAX_COUNT;
     const labelUpdateInterval =
@@ -169,59 +179,121 @@ export const CosmosGraphCanvas = forwardRef<
       [collapsedNodeIds]
     );
 
+    const centerGraph = useCallback(
+      (nodeIds?: string[], opts?: { animated?: boolean }) => {
+        const graph = cosmosRef.current;
+        if (!graph) return;
+
+        const duration = opts?.animated === false ? 0 : 250;
+        const indices = getNodeIndices(nodeIds);
+
+        if (
+          !indices.length ||
+          indices.length === preparedRef.current.nodes.length
+        ) {
+          graph.fitView(duration, 0.1);
+        } else if (indices.length === 1) {
+          graph.zoomToPointByIndex(indices[0], duration);
+        } else {
+          graph.fitViewByPointIndices(indices, duration, 0.1);
+        }
+      },
+      [getNodeIndices]
+    );
+
+    const fitNodesInView = useCallback(
+      (nodeIds?: string[], opts?: { animated?: boolean }) => {
+        const graph = cosmosRef.current;
+        if (!graph) return;
+
+        graph.fitViewByPointIndices(
+          getNodeIndices(nodeIds),
+          opts?.animated === false ? 0 : 250,
+          0.1
+        );
+      },
+      [getNodeIndices]
+    );
+
+    const zoomIn = useCallback(() => {
+      const graph = cosmosRef.current;
+      graph?.zoom(graph.getZoomLevel() * 1.5, 250);
+    }, []);
+
+    const zoomOut = useCallback(() => {
+      const graph = cosmosRef.current;
+      graph?.zoom(graph.getZoomLevel() / 1.5, 250);
+    }, []);
+
+    const resetControls = useCallback(
+      (animated?: boolean) =>
+        cosmosRef.current?.fitView(animated === false ? 0 : 250, 0.1),
+      []
+    );
+
+    const freeze = useCallback(() => cosmosRef.current?.pause(), []);
+    const unFreeze = useCallback(() => cosmosRef.current?.unpause(), []);
+    const getCosmosGraph = useCallback(
+      () => cosmosRef.current ?? undefined,
+      []
+    );
+
+    const getControls = useCallback(
+      (): CosmosGraphControls => ({
+        centerGraph,
+        fitView: (duration?: number, padding?: number) =>
+          cosmosRef.current?.fitView(duration, padding),
+        fitNodesInView,
+        freeze,
+        getCosmosGraph,
+        resetControls,
+        unFreeze,
+        zoomIn,
+        zoomOut
+      }),
+      [
+        centerGraph,
+        fitNodesInView,
+        freeze,
+        getCosmosGraph,
+        resetControls,
+        unFreeze,
+        zoomIn,
+        zoomOut
+      ]
+    );
+
     useImperativeHandle(
       ref,
       () => ({
-        centerGraph: (nodeIds, opts) => {
-          const graph = cosmosRef.current;
-          if (!graph) return;
-
-          const duration = opts?.animated === false ? 0 : 250;
-          const indices = getNodeIndices(nodeIds);
-
-          if (
-            !indices.length ||
-            indices.length === preparedRef.current.nodes.length
-          ) {
-            graph.fitView(duration, 0.1);
-          } else if (indices.length === 1) {
-            graph.zoomToPointByIndex(indices[0], duration);
-          } else {
-            graph.fitViewByPointIndices(indices, duration, 0.1);
-          }
-        },
-        fitNodesInView: (nodeIds, opts) => {
-          const graph = cosmosRef.current;
-          if (!graph) return;
-
-          graph.fitViewByPointIndices(
-            getNodeIndices(nodeIds),
-            opts?.animated === false ? 0 : 250,
-            0.1
-          );
-        },
-        zoomIn: () => {
-          const graph = cosmosRef.current;
-          graph?.zoom(graph.getZoomLevel() * 1.5, 250);
-        },
-        zoomOut: () => {
-          const graph = cosmosRef.current;
-          graph?.zoom(graph.getZoomLevel() / 1.5, 250);
-        },
-        resetControls: (animated?: boolean) =>
-          cosmosRef.current?.fitView(animated === false ? 0 : 250, 0.1),
+        centerGraph,
+        fitNodesInView,
+        zoomIn,
+        zoomOut,
+        resetControls,
         getGraph: () => preparedRef.current.graph,
-        getCosmosGraph: () => cosmosRef.current ?? undefined,
+        getControls,
+        getCosmosGraph,
         exportCanvas: () => {
           cosmosRef.current?.render(0);
           return (
             containerRef.current?.querySelector('canvas')?.toDataURL() ?? ''
           );
         },
-        freeze: () => cosmosRef.current?.pause(),
-        unFreeze: () => cosmosRef.current?.unpause()
+        freeze,
+        unFreeze
       }),
-      [getNodeIndices]
+      [
+        centerGraph,
+        fitNodesInView,
+        freeze,
+        getControls,
+        getCosmosGraph,
+        resetControls,
+        unFreeze,
+        zoomIn,
+        zoomOut
+      ]
     );
 
     const config = useMemo(
@@ -451,6 +523,139 @@ export const CosmosGraphCanvas = forwardRef<
     ]);
 
     useEffect(() => {
+      const container = containerRef.current;
+      if (
+        disabled ||
+        !container ||
+        !lassoType ||
+        lassoType === 'none' ||
+        lassoType === 'edge'
+      ) {
+        return undefined;
+      }
+
+      const getSelectionRect = (event: PointerEvent) => {
+        const graph = cosmosRef.current;
+        const start = lassoStartRef.current;
+        if (!graph || !start) return undefined;
+
+        const bounds = container.getBoundingClientRect();
+        const current: [number, number] = [
+          event.clientX - bounds.left,
+          event.clientY - bounds.top
+        ];
+        const left = Math.max(0, Math.min(start[0], current[0]));
+        const right = Math.min(bounds.width, Math.max(start[0], current[0]));
+        const top = Math.max(0, Math.min(start[1], current[1]));
+        const bottom = Math.min(bounds.height, Math.max(start[1], current[1]));
+
+        return {
+          graph,
+          rect: [
+            [left, top],
+            [right, bottom]
+          ] as [[number, number], [number, number]]
+        };
+      };
+
+      const updateLassoElement = (event: PointerEvent) => {
+        const start = lassoStartRef.current;
+        const element = lassoElementRef.current;
+        if (!start || !element) return;
+
+        const bounds = container.getBoundingClientRect();
+        const startClientX = bounds.left + start[0];
+        const startClientY = bounds.top + start[1];
+        const left = Math.min(startClientX, event.clientX);
+        const right = Math.max(startClientX, event.clientX);
+        const top = Math.min(startClientY, event.clientY);
+        const bottom = Math.max(startClientY, event.clientY);
+
+        element.style.left = `${left}px`;
+        element.style.top = `${top}px`;
+        element.style.width = `${right - left}px`;
+        element.style.height = `${bottom - top}px`;
+      };
+
+      const selectNodesInRect = (event: PointerEvent) => {
+        const selection = getSelectionRect(event);
+        if (!selection) return [];
+
+        return Array.from(selection.graph.getPointsInRect(selection.rect))
+          .map(index => preparedRef.current.nodes[index]?.id)
+          .filter((id): id is string => Boolean(id));
+      };
+
+      const handlePointerMove = (event: PointerEvent) => {
+        if (!lassoStartRef.current) return;
+
+        event.preventDefault();
+        updateLassoElement(event);
+
+        const selected = selectNodesInRect(event);
+        setLassoActives(selected);
+        onLasso?.(selected);
+      };
+
+      const handlePointerUp = (event: PointerEvent) => {
+        if (!lassoStartRef.current) return;
+
+        event.preventDefault();
+        updateLassoElement(event);
+
+        const selected = selectNodesInRect(event);
+        setLassoActives(selected);
+        onLassoEnd?.(selected);
+
+        lassoStartRef.current = null;
+        lassoElementRef.current?.parentElement?.removeChild(
+          lassoElementRef.current
+        );
+        lassoElementRef.current = null;
+
+        document.removeEventListener('pointermove', handlePointerMove, true);
+        document.removeEventListener('pointerup', handlePointerUp, true);
+      };
+
+      const handlePointerDown = (event: PointerEvent) => {
+        if (!event.shiftKey || event.button !== 0) return;
+
+        event.preventDefault();
+        event.stopImmediatePropagation();
+
+        const bounds = container.getBoundingClientRect();
+        lassoStartRef.current = [
+          event.clientX - bounds.left,
+          event.clientY - bounds.top
+        ];
+
+        const element = createElement(theme);
+        lassoElementRef.current = element;
+        container.appendChild(element);
+        element.style.left = `${event.clientX}px`;
+        element.style.top = `${event.clientY}px`;
+        element.style.width = '0px';
+        element.style.height = '0px';
+
+        document.addEventListener('pointermove', handlePointerMove, true);
+        document.addEventListener('pointerup', handlePointerUp, true);
+      };
+
+      container.addEventListener('pointerdown', handlePointerDown, true);
+
+      return () => {
+        container.removeEventListener('pointerdown', handlePointerDown, true);
+        document.removeEventListener('pointermove', handlePointerMove, true);
+        document.removeEventListener('pointerup', handlePointerUp, true);
+        lassoElementRef.current?.parentElement?.removeChild(
+          lassoElementRef.current
+        );
+        lassoElementRef.current = null;
+        lassoStartRef.current = null;
+      };
+    }, [disabled, lassoType, onLasso, onLassoEnd, theme]);
+
+    useEffect(() => {
       if (typeof console === 'undefined') {
         return;
       }
@@ -459,7 +664,7 @@ export const CosmosGraphCanvas = forwardRef<
         children ? 'children' : undefined,
         contextMenu ? 'contextMenu' : undefined,
         edgeLabelPosition ? 'edgeLabelPosition' : undefined,
-        lassoType && lassoType !== 'none' ? 'lassoType' : undefined,
+        lassoType === 'edge' ? 'lassoType="edge"' : undefined,
         renderNode ? 'renderNode' : undefined,
         onRenderCluster ? 'onRenderCluster' : undefined,
         onClusterClick ? 'onClusterClick' : undefined,
@@ -544,7 +749,7 @@ export const CosmosGraphCanvas = forwardRef<
 
       const activeEdgeIds = new Set(actives);
       const colorActiveEdgeIds = new Set(actives);
-      const activeNodeIds = new Set(actives);
+      const activeNodeIds = new Set([...actives, ...lassoActives]);
       if (hoveredEdgeId) {
         colorActiveEdgeIds.add(hoveredEdgeId);
       }
@@ -591,6 +796,7 @@ export const CosmosGraphCanvas = forwardRef<
       edgeArrowPosition,
       hoveredEdgeId,
       hoveredNodeId,
+      lassoActives,
       preparedGraph,
       selections,
       selectedIds,

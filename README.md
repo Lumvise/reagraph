@@ -40,10 +40,11 @@ Reagraph is a high-performance network graph visualization built in WebGL for Re
 
 - [Reaflow](https://reaflow.dev?utm=reagraph) - Open-source library for workflow and diagram graphs.
 - [Reablocks](https://reablocks.dev?utm=reagraph) - Open-source component library for React based on Tailwind.
-- [Reaviz](https://reaviz.dev?utm=reagraph) - Open-source library for data visualizations for React. 
+- [Reaviz](https://reaviz.dev?utm=reagraph) - Open-source library for data visualizations for React.
 - [Reachat](https://reachat.dev?utm=reagraph) - Open-source library for building LLM/Chat UIs for React.
 
 ## ✨ Features
+
 - WebGL based for high performance
 - Optional cosmos.gl renderer for large 2D graphs
 - Node Sizing based on attribute, page rank, centrality, custom
@@ -150,11 +151,13 @@ export default ({ nodes, edges }) => {
 ```
 
 `GraphCanvasRef` remains the default Three.js ref type. Use
-`CosmosGraphCanvasRef` when `renderEngine="cosmos"`. The cosmos renderer
-supports Reagraph styling, labels, node/edge click and hover, node double click,
-node/edge context menu, and node drag-end callbacks. Three.js-only features such
-as lasso selection, custom renderers, children, and cluster rendering/events are
-not supported by the cosmos renderer.
+`CosmosGraphCanvasRef` when `renderEngine="cosmos"`. The cosmos ref exposes
+`getControls()` with a cosmos-specific controls adapter plus `getCosmosGraph()`
+for advanced access. The cosmos renderer supports Reagraph styling, labels,
+node/edge click and hover, node double click, node/edge context menu, node
+drag-end callbacks, and node lasso selection. Three.js-only features such as
+edge lasso selection, custom renderers, children, and cluster rendering/events
+are not supported by the cosmos renderer.
 
 ## 🔭 Development
 

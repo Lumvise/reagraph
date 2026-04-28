@@ -37,9 +37,10 @@ export interface GraphCanvasProps extends Omit<GraphSceneProps, 'theme'> {
    * Render engine to use for the graph. Defaults to the Three.js renderer.
    *
    * The cosmos renderer supports large 2D graphs, Reagraph styling, labels,
-   * node/edge click and hover, node double click, node/edge context menu, and
-   * node drag end callbacks. Three.js-only features such as lasso, custom
-   * renderers, children, and cluster rendering/events are ignored by cosmos.
+   * node/edge click and hover, node double click, node/edge context menu, node
+   * drag end callbacks, and node lasso selection. Three.js-only features such
+   * as edge lasso, custom renderers, children, and cluster rendering/events are
+   * ignored by cosmos.
    */
   renderEngine?: RenderEngine;
 
@@ -167,7 +168,59 @@ export interface ThreeGraphCanvasRef
 
 export type GraphCanvasRef = ThreeGraphCanvasRef;
 
+export interface CosmosGraphControls {
+  /**
+   * Center the graph on all nodes or the given node ids.
+   */
+  centerGraph: BaseGraphCanvasRef['centerGraph'];
+
+  /**
+   * Fit all nodes in view.
+   */
+  fitView: (duration?: number, padding?: number) => void;
+
+  /**
+   * Fit the given node ids in view.
+   */
+  fitNodesInView: BaseGraphCanvasRef['fitNodesInView'];
+
+  /**
+   * Freeze graph interactions.
+   */
+  freeze: BaseGraphCanvasRef['freeze'];
+
+  /**
+   * Get the cosmos.gl graph renderer.
+   */
+  getCosmosGraph: () => CosmosGraph | undefined;
+
+  /**
+   * Reset controls to the initial graph view.
+   */
+  resetControls: BaseGraphCanvasRef['resetControls'];
+
+  /**
+   * Unfreeze graph interactions.
+   */
+  unFreeze: BaseGraphCanvasRef['unFreeze'];
+
+  /**
+   * Zoom in on the graph.
+   */
+  zoomIn: BaseGraphCanvasRef['zoomIn'];
+
+  /**
+   * Zoom out on the graph.
+   */
+  zoomOut: BaseGraphCanvasRef['zoomOut'];
+}
+
 export interface CosmosGraphCanvasRef extends BaseGraphCanvasRef {
+  /**
+   * Get engine-specific controls for the cosmos renderer.
+   */
+  getControls: () => CosmosGraphControls;
+
   /**
    * Get the cosmos.gl graph renderer.
    */

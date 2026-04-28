@@ -21,6 +21,7 @@ const { graphInstances, MockCosmosGraph } = vi.hoisted(() => {
     fitView = vi.fn();
     fitViewByPointIndices = vi.fn();
     getPointPositions = vi.fn(() => []);
+    getPointsInRect = vi.fn(() => new Float32Array());
     getZoomLevel = vi.fn(() => 1);
     pause = vi.fn();
     render = vi.fn();
@@ -64,9 +65,7 @@ const typeCheckGraphCanvasRefs = () => {
 
   GraphCanvas({ ref: threeRef, ...emptyGraph });
   GraphCanvas({ ref: cosmosRef, renderEngine: 'cosmos', ...emptyGraph });
-
-  // @ts-expect-error Cosmos refs intentionally do not expose Three camera controls.
-  cosmosRef.current?.getControls();
+  cosmosRef.current?.getControls().getCosmosGraph();
 
   // @ts-expect-error Three GraphCanvasRef is not valid for renderEngine="cosmos".
   GraphCanvas({ ref: threeRef, renderEngine: 'cosmos', ...emptyGraph });
@@ -96,7 +95,9 @@ describe('GraphCanvas cosmos renderer', () => {
 
     expect(graphInstances).toHaveLength(1);
     expect(ref.current?.getCosmosGraph()).toBe(graphInstances[0]);
-    expect('getControls' in ref.current!).toBe(false);
+    expect(ref.current?.getControls().getCosmosGraph()).toBe(graphInstances[0]);
+    ref.current?.getControls().zoomIn();
+    expect(graphInstances[0].zoom).toHaveBeenCalledWith(1.5, 250);
     expect(graphInstances[0].setConfig).toHaveBeenCalled();
 
     await act(async () => {
@@ -104,5 +105,84 @@ describe('GraphCanvas cosmos renderer', () => {
     });
 
     expect(graphInstances[0].destroy).toHaveBeenCalled();
+  });
+
+  test('supports node lasso selection with the cosmos renderer', async () => {
+    const container = document.createElement('div');
+    const onLassoEnd = vi.fn();
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        React.createElement(GraphCanvas, {
+          renderEngine: 'cosmos',
+          labelType: 'none',
+          lassoType: 'node',
+          nodes: [
+            { id: 'one', label: 'One' },
+            { id: 'two', label: 'Two' }
+          ],
+          edges: [{ id: 'edge', source: 'one', target: 'two' }],
+          onLassoEnd
+        })
+      );
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    graphInstances[0].getPointsInRect.mockReturnValue(new Float32Array([0, 1]));
+
+    const cosmosContainer = container.firstElementChild
+      ?.firstElementChild as HTMLDivElement;
+    cosmosContainer.getBoundingClientRect = () =>
+      ({
+        bottom: 100,
+        height: 100,
+        left: 0,
+        right: 100,
+        top: 0,
+        width: 100,
+        x: 0,
+        y: 0,
+        toJSON: () => ({})
+      }) as DOMRect;
+
+    await act(async () => {
+      cosmosContainer.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          bubbles: true,
+          button: 0,
+          clientX: 10,
+          clientY: 20,
+          shiftKey: true
+        })
+      );
+      document.dispatchEvent(
+        new MouseEvent('pointermove', {
+          bubbles: true,
+          clientX: 50,
+          clientY: 70
+        })
+      );
+      document.dispatchEvent(
+        new MouseEvent('pointerup', {
+          bubbles: true,
+          clientX: 50,
+          clientY: 70
+        })
+      );
+    });
+
+    expect(graphInstances[0].getPointsInRect).toHaveBeenCalledWith([
+      [10, 20],
+      [50, 70]
+    ]);
+    expect(onLassoEnd).toHaveBeenCalledWith(['one', 'two']);
+
+    await act(async () => {
+      root.unmount();
+    });
   });
 });
